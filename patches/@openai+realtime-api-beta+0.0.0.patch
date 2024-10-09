@@ -1,0 +1,80 @@
+diff --git a/node_modules/@openai/realtime-api-beta/lib/api.js b/node_modules/@openai/realtime-api-beta/lib/api.js
+index e522263..64d7e8a 100644
+--- a/node_modules/@openai/realtime-api-beta/lib/api.js
++++ b/node_modules/@openai/realtime-api-beta/lib/api.js
+@@ -4,15 +4,16 @@ import { RealtimeUtils } from './utils.js';
+ export class RealtimeAPI extends RealtimeEventHandler {
+   /**
+    * Create a new RealtimeAPI instance
+-   * @param {{url?: string, apiKey?: string, dangerouslyAllowAPIKeyInBrowser?: boolean, debug?: boolean}} [settings]
++   * @param {{url?: string, apiKey?: string, dangerouslyAllowAPIKeyInBrowser?: boolean, debug?: boolean, WebSocket?: typeof WebSocket}} [settings]
+    * @returns {RealtimeAPI}
+    */
+-  constructor({ url, apiKey, dangerouslyAllowAPIKeyInBrowser, debug } = {}) {
++  constructor({ url, apiKey, dangerouslyAllowAPIKeyInBrowser, debug, WebSocket }) {
+     super();    
+     this.defaultUrl = 'wss://api.openai.com/v1/realtime';
+     this.url = url || this.defaultUrl;
+     this.apiKey = apiKey || null;
+     this.debug = !!debug;
++    this.WebSocket = WebSocket;
+     this.ws = null;
+     if (globalThis.document && this.apiKey) {
+       if (!dangerouslyAllowAPIKeyInBrowser) {
+@@ -63,16 +64,16 @@ export class RealtimeAPI extends RealtimeEventHandler {
+     if (this.isConnected()) {
+       throw new Error(`Already connected`);
+     }
+-    if (globalThis.document) {
++    if (globalThis.WebSocket || this.WebSocket) {
+       /**
+        * Web browser
+        */
+-      if (this.apiKey) {
++      if (this.apiKey && globalThis.document) {
+         console.warn(
+           'Warning: Connecting using API key in the browser, this is not recommended',
+         );
+       }
+-      const WebSocket = globalThis.WebSocket;
++      const WebSocket = this.WebSocket || globalThis.WebSocket;
+       const ws = new WebSocket(`${this.url}${model ? `?model=${model}` : ''}`, [
+         'realtime',
+         `openai-insecure-api-key.${this.apiKey}`,
+@@ -96,7 +97,11 @@ export class RealtimeAPI extends RealtimeEventHandler {
+             this.log(`Error, disconnected from "${this.url}"`);
+             this.dispatch('close', { error: true });
+           });
+-          ws.addEventListener('close', () => {
++          ws.addEventListener('close', ({ code, reason }) => {            
++            if (code === 1011 && reason === 'keepalive ping timeout') {
++              console.log('keepalive ping timeout, reconnecting...');
++              return;
++            }
+             this.disconnect(ws);
+             this.log(`Disconnected from "${this.url}"`);
+             this.dispatch('close', { error: false });
+diff --git a/node_modules/@openai/realtime-api-beta/lib/client.js b/node_modules/@openai/realtime-api-beta/lib/client.js
+index be37288..2dbaab2 100644
+--- a/node_modules/@openai/realtime-api-beta/lib/client.js
++++ b/node_modules/@openai/realtime-api-beta/lib/client.js
+@@ -189,9 +189,9 @@ import { RealtimeUtils } from './utils.js';
+ export class RealtimeClient extends RealtimeEventHandler {
+   /**
+    * Create a new RealtimeClient instance
+-   * @param {{url?: string, apiKey?: string, dangerouslyAllowAPIKeyInBrowser?: boolean, debug?: boolean}} [settings]
++   * @param {{url?: string, apiKey?: string, dangerouslyAllowAPIKeyInBrowser?: boolean, debug?: boolean, WebSocket?: typeof WebSocket}} [settings]
+    */
+-  constructor({ url, apiKey, dangerouslyAllowAPIKeyInBrowser, debug } = {}) {
++  constructor({ url, apiKey, dangerouslyAllowAPIKeyInBrowser, debug, WebSocket } = {}) {
+     super();
+     this.defaultSessionConfig = {
+       modalities: ['text', 'audio'],
+@@ -223,6 +223,7 @@ export class RealtimeClient extends RealtimeEventHandler {
+       apiKey,
+       dangerouslyAllowAPIKeyInBrowser,
+       debug,
++      WebSocket,
+     });
+     this.conversation = new RealtimeConversation();
+     this._resetConfig();
